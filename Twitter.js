@@ -10,6 +10,7 @@
 
 (function () {
   'use strict';
+
   // Function to create an Alt button
   function createAltButton(altText) {
     const button = document.createElement('button');
@@ -75,6 +76,7 @@
 
     return button;
   }
+
   // Function to check if alt text is valid
   function isValidAltText(alt) {
     return alt && alt.trim() !== '' && alt !== '画像' && alt !== 'Image';
@@ -85,63 +87,35 @@
     const size = 48; // Maximum size for an emoji in pixels
     return img.width <= size && img.height <= size;
   }
-  // Function to check if an image is a profile picture
-  function isProfilePicture(img) {
-    // プロフィール画像を特定する条件を追加
-    return img.closest('a[href^="/"]') !== null ||
-      img.closest('[data-testid="UserAvatar-Container-"]') !== null ||
-      img.src.includes('profile_images');
-  }
-  // Function to check if an image should have an Alt button
-  function shouldHaveAltButton(img) {
-    return img.tagName === 'IMG' &&
-      !isEmoji(img) &&
-      !isProfilePicture(img) &&
-      isValidAltText(img.getAttribute('alt'));
-  }
-  // Utility function to safely get elements
-  function safeQuerySelector(element, selector) {
-    try {
-      return element.querySelector(selector);
-    } catch (e) {
-      console.error('Error in safeQuerySelector:', e);
-      return null;
-    }
-  }
 
-  // Function to check if an element is an enlarged image
-  function isEnlargedImage(element) {
-    if (!element || !element.tagName) return false;
-    return element.tagName === 'IMG' && (
-      element.closest('[aria-modal="true"]') ||
-      element.closest('[role="dialog"]') ||
-      element.closest('.css-1dbjc4n.r-aqfbo4.r-1p0dtai.r-1d2f490.r-12vffkv.r-1xcajam.r-zchlnj')
-    );
-  }
   // Function to add or remove Alt button based on alt attribute
   function updateAltButton(img) {
-    if (!img || !img.tagName || !shouldHaveAltButton(img)) return;
+    if (isEmoji(img)) return;
 
-    const container = img.closest('[aria-modal="true"], [role="dialog"]') || img.parentElement;
-    if (!container) return;
-
-    let existingButton = safeQuerySelector(container, `.alt-button[data-img-src="${img.src}"]`);
+    const container = img.closest('[aria-modal="true"]') || img.parentElement;
+    const existingButton = container.querySelector('.alt-button');
     const altText = img.getAttribute('alt');
 
-    if (!existingButton) {
-      try {
+    if (isValidAltText(altText)) {
+      if (!existingButton) {
         const button = createAltButton(altText);
-        button.setAttribute('data-img-src', img.src);
-        container.appendChild(button);
-        positionAltButton(button, img);
-      } catch (e) {
-        console.error('Error creating Alt button:', e);
+        // ボタンをimg要素の後に挿入
+        img.insertAdjacentElement('afterend', button);
+        // ボタンのスタイルを調整
+        button.style.position = 'absolute';
+        button.style.bottom = '10px';
+        button.style.right = '10px';
       }
-    } else {
-      positionAltButton(existingButton, img);
+    } else if (existingButton) {
+      existingButton.remove();
     }
+
+    // 画像のスタイルをリセット
+    img.style.position = '';
+    img.style.opacity = '';
   }
-  // Main function to update Alt buttons for all non-emoji images
+
+  // Main function to update Alt buttons for all non-emoji images in Tweets
   function updateAllAltButtons() {
     const allImages = document.querySelectorAll('img[alt]:not([alt=""])');
     allImages.forEach(img => {
@@ -152,74 +126,39 @@
       }
     });
   }
-  // Altボタンの位置を設定する関数
-  function positionAltButton(button, img) {
-    if (!button || !img) return;
 
-    const rect = img.getBoundingClientRect();
-    const containerRect = img.closest('[aria-modal="true"], [role="dialog"]')?.getBoundingClientRect() || { top: 0, left: 0 };
-
-    button.style.position = 'absolute';
-    button.style.top = `${Math.max(rect.bottom - containerRect.top - button.offsetHeight - 10, 0)}px`;
-    button.style.left = `${Math.max(rect.right - containerRect.left - button.offsetWidth - 10, 0)}px`;
-    button.style.zIndex = '9999'; // Ensure the button is on top
-  }
-  // 拡大表示モーダルを監視する関数
-  // Function to observe enlarged image modal
-  function observeEnlargedImageModal(modalElement) {
-    if (!modalElement) return;
-
-    const modalObserver = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        if (mutation.type === 'childList' || mutation.type === 'attributes') {
-          const images = modalElement.querySelectorAll('img[alt]:not([alt=""])');
-          images.forEach(updateAltButton);
-        }
-      });
-    });
-
-    modalObserver.observe(modalElement, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['alt', 'src']
-    });
-
-    return modalObserver;
+  function isEnlargedImage(element) {
+    // 拡大表示された画像を特定するためのより具体的な条件
+    return element.tagName === 'IMG' && (
+      element.closest('[aria-modal="true"]') ||
+      element.closest('[role="dialog"]') ||
+      element.closest('.css-1dbjc4n.r-aqfbo4.r-1p0dtai.r-1d2f490.r-12vffkv.r-1xcajam.r-zchlnj')
+    );
   }
 
-  // Observe DOM changes
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((mutation) => {
       if (mutation.type === 'childList') {
         mutation.addedNodes.forEach((node) => {
           if (node.nodeType === 1) {
-            if (node.matches('img') && shouldHaveAltButton(node)) {
+            if (node.matches('img[alt]:not([alt=""])')) {
               updateAltButton(node);
             } else {
-              node.querySelectorAll('img').forEach(img => {
-                if (shouldHaveAltButton(img)) updateAltButton(img);
-              });
+              node.querySelectorAll('img[alt]:not([alt=""])').forEach(updateAltButton);
             }
-            // Check for enlarged image modal
+            // 拡大表示のモーダルが追加された場合
             if (node.matches('[aria-modal="true"], [role="dialog"]')) {
               setTimeout(() => {
-                node.querySelectorAll('img').forEach(img => {
-                  if (shouldHaveAltButton(img)) updateAltButton(img);
-                });
-                observeEnlargedImageModal(node);
-              }, 500);
+                node.querySelectorAll('img').forEach(updateAltButton);
+              }, 500); // 少し遅延を入れて確実に画像が読み込まれた後に実行
             }
           }
         });
       } else if (mutation.type === 'attributes' && mutation.attributeName === 'alt') {
-        if (shouldHaveAltButton(mutation.target)) updateAltButton(mutation.target);
+        updateAltButton(mutation.target);
       }
     });
   });
-
-
-  // Start observing
   observer.observe(document.body, {
     childList: true,
     subtree: true,
@@ -228,27 +167,7 @@
   });
 
   // Initial run
-  window.addEventListener('load', () => {
-    document.querySelectorAll('img').forEach(img => {
-      if (shouldHaveAltButton(img)) updateAltButton(img);
-    });
-  });
-
-  // Debug function to check why buttons are not showing
-  function debugAltButtons() {
-    const images = document.querySelectorAll('img');
-    images.forEach(img => {
-      console.log('Image:', img);
-      console.log('Is emoji:', isEmoji(img));
-      console.log('Is profile picture:', isProfilePicture(img));
-      console.log('Has valid alt text:', isValidAltText(img.getAttribute('alt')));
-      console.log('Should have alt button:', shouldHaveAltButton(img));
-      console.log('---');
-    });
-  }
-
-  // Run debug function after a short delay
-  setTimeout(debugAltButtons, 2000);
+  window.addEventListener('load', updateAllAltButtons);
 
   // Apply styles for the Alt button and popup
   // Apply styles for the Alt button and popup
