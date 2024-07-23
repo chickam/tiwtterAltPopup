@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Twitter Alt Popup
 // @namespace    http://tampermonkey.net/
-// @version      2.7
+// @version      4.1
 // @description  Displays alt text in a popup for non-emoji images in Tweets on Twitter and allows copying to clipboard.
 // @author       Your Name
 // @match        *://*.x.com/*
@@ -11,148 +11,218 @@
 (function () {
   'use strict';
 
-  // Function to create an Alt button
-  function createAltButton(altText) {
-    const button = document.createElement('button');
-    button.className = 'alt-button';
-    button.innerText = 'Alt';
+  const CONSTANTS = {
+    EMOJI_MAX_SIZE: 48,
+    INVALID_ALT_TEXT: ['画像', 'Image'],
+    BUTTON_TEXT: 'Alt',
+    COPY_BUTTON_TEXT: 'Copy',
+    CLOSE_BUTTON_TEXT: 'Close',
+    POPUP_DISPLAY_DELAY: 500,
+    MODAL_CHECK_INTERVAL: 100,
+  };
 
-    // Create popup container
+  function createPopup(altText) {
     const popup = document.createElement('div');
     popup.className = 'alt-popup';
     popup.innerHTML = `
-        <div class="alt-popup-content">
-            <p>${altText}</p>
-            <div class="alt-popup-buttons">
-                <button class="alt-copy-button">Copy</button>
-                <button class="alt-close-button">Close</button>
-            </div>
+      <div class="alt-popup-content">
+        <p>${altText}</p>
+        <div class="alt-popup-buttons">
+          <button class="alt-copy-button">${CONSTANTS.COPY_BUTTON_TEXT}</button>
+          <button class="alt-close-button">${CONSTANTS.CLOSE_BUTTON_TEXT}</button>
         </div>
+      </div>
     `;
+    return popup;
+  }
 
-    // Create a wrapper for the popup
-    const popupWrapper = document.createElement('div');
-    popupWrapper.className = 'alt-popup-wrapper';
-    popupWrapper.appendChild(popup);
+  function createPopupWrapper(popup) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'alt-popup-wrapper';
+    wrapper.appendChild(popup);
+    document.body.appendChild(wrapper);
+    return wrapper;
+  }
 
-    document.body.appendChild(popupWrapper);
+  function createAltButton(altText) {
+    const button = document.createElement('button');
+    button.className = 'alt-button';
+    button.innerText = CONSTANTS.BUTTON_TEXT;
 
-    // Function to close the popup
-    const closePopup = () => {
-      popupWrapper.style.display = 'none';
-    };
+    const popup = createPopup(altText);
+    const popupWrapper = createPopupWrapper(popup);
 
-    // Add click event to the button to toggle popup
-    button.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      popupWrapper.style.display = popupWrapper.style.display === 'none' || popupWrapper.style.display === '' ? 'flex' : 'none';
-    });
-
-    // Add click event to the copy button in the popup
-    popup.querySelector('.alt-copy-button').addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      navigator.clipboard.writeText(altText).then(() => {
-        console.log('Alt text copied to clipboard');
-      }).catch(err => {
-        console.error('Failed to copy alt text: ', err);
-      });
-    });
-
-    // Add click event to the close button
-    popup.querySelector('.alt-close-button').addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      closePopup();
-    });
-
-    // Close popup when clicking outside
-    popupWrapper.addEventListener('click', (e) => {
-      if (e.target === popupWrapper) {
-        closePopup();
-      }
-    });
+    setupButtonEvents(button, popupWrapper);
+    setupPopupEvents(popup, popupWrapper, altText);
 
     return button;
   }
 
-  // Function to check if alt text is valid
+  function setupButtonEvents(button, popupWrapper) {
+    button.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      togglePopup(popupWrapper);
+    });
+  }
+
+  function setupPopupEvents(popup, popupWrapper, altText) {
+    const copyButton = popup.querySelector('.alt-copy-button');
+    const closeButton = popup.querySelector('.alt-close-button');
+
+    copyButton.addEventListener('click', (e) => handleCopyClick(e, altText));
+    closeButton.addEventListener('click', (e) => handleCloseClick(e, popupWrapper));
+    popupWrapper.addEventListener('click', (e) => {
+      if (e.target === popupWrapper) {
+        closePopup(popupWrapper);
+      }
+    });
+  }
+
+  function togglePopup(popupWrapper) {
+    popupWrapper.style.display = popupWrapper.style.display === 'none' || popupWrapper.style.display === '' ? 'flex' : 'none';
+  }
+
+  function closePopup(popupWrapper) {
+    popupWrapper.style.display = 'none';
+  }
+
+  function handleCopyClick(e, altText) {
+    e.preventDefault();
+    e.stopPropagation();
+    copyToClipboard(altText);
+  }
+
+  function handleCloseClick(e, popupWrapper) {
+    e.preventDefault();
+    e.stopPropagation();
+    closePopup(popupWrapper);
+  }
+
+  function copyToClipboard(text) {
+    navigator.clipboard.writeText(text)
+      .then(() => console.log('Alt text copied to clipboard'))
+      .catch(err => console.error('Failed to copy alt text: ', err));
+  }
+
   function isValidAltText(alt) {
-    return alt && alt.trim() !== '' && alt !== '画像' && alt !== 'Image';
+    return alt && alt.trim() !== '' && !CONSTANTS.INVALID_ALT_TEXT.includes(alt);
   }
 
-  // Function to check if an image is likely an emoji
   function isEmoji(img) {
-    const size = 48; // Maximum size for an emoji in pixels
-    return img.width <= size && img.height <= size;
+    return img.width <= CONSTANTS.EMOJI_MAX_SIZE && img.height <= CONSTANTS.EMOJI_MAX_SIZE;
   }
 
-  // Function to add or remove Alt button based on alt attribute
   function updateAltButton(img) {
     if (isEmoji(img)) return;
 
-    const container = img.closest('[aria-modal="true"]') || img.parentElement;
-    const existingButton = container.querySelector('.alt-button');
-    let altText = img.getAttribute('alt');
+    const existingButton = img.nextSibling && img.nextSibling.classList && img.nextSibling.classList.contains('alt-button');
+    const altText = img.getAttribute('alt');
 
     if (isValidAltText(altText)) {
       if (!existingButton) {
         const button = createAltButton(altText);
-        // ボタンをimg要素の後に挿入
         img.insertAdjacentElement('afterend', button);
-        // ボタンのスタイルを調整
-        button.style.position = 'absolute';
-        button.style.bottom = '10px';
-        button.style.right = '10px';
+        setButtonPosition(button);
       }
     } else if (existingButton) {
-      existingButton.remove();
+      img.nextSibling.remove();
     }
-
-    // 画像のスタイルをリセット
-    img.style.position = '';
-    img.style.opacity = '';
   }
 
-  // Main function to update Alt buttons for all non-emoji images in Tweets
+  function setButtonPosition(button) {
+    button.style.position = 'absolute';
+    button.style.bottom = '10px';
+    button.style.right = '10px';
+  }
+
   function updateAllAltButtons() {
     const allImages = document.querySelectorAll('img[alt]:not([alt=""])');
-    allImages.forEach(img => {
-      if (img.complete) {
-        updateAltButton(img);
-      } else {
-        img.addEventListener('load', () => updateAltButton(img));
-      }
-    });
+    allImages.forEach(processImage);
 
-    // 拡大表示のモーダル内の画像も対象に
     const modalImages = document.querySelectorAll('[aria-modal="true"] img, [role="dialog"] img');
-    modalImages.forEach(img => updateAltButton(img));
+    modalImages.forEach(updateAltButton);
   }
 
-  const observer = new MutationObserver((mutations) => {
+  function processImage(img) {
+    if (img.complete) {
+      updateAltButton(img);
+    } else {
+      img.addEventListener('load', () => updateAltButton(img));
+    }
+  }
+
+  let modalObserver = null;
+
+  function handleModalOpen(modalElement) {
+    if (modalObserver) {
+      modalObserver.disconnect();
+    }
+
+    modalObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList' || mutation.type === 'attributes') {
+          const images = modalElement.querySelectorAll('img[alt]:not([alt=""])');
+          images.forEach(updateAltButton);
+        }
+      });
+    });
+
+    modalObserver.observe(modalElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['alt', 'src']
+    });
+
+    // 初回の画像に対してAltボタンを追加
+    const initialImages = modalElement.querySelectorAll('img[alt]:not([alt=""])');
+    initialImages.forEach(updateAltButton);
+  }
+  function handleModalClose() {
+    if (modalObserver) {
+      modalObserver.disconnect();
+      modalObserver = null;
+    }
+  }
+
+  function checkForModalChanges() {
+    const modalElement = document.querySelector('[aria-modal="true"], [role="dialog"]');
+    if (modalElement) {
+      handleModalOpen(modalElement);
+    } else {
+      handleModalClose();
+    }
+  }
+  setInterval(checkForModalChanges, CONSTANTS.MODAL_CHECK_INTERVAL);
+
+  const observer = new MutationObserver(handleMutations);
+
+  function handleMutations(mutations) {
     mutations.forEach((mutation) => {
       if (mutation.type === 'childList') {
-        mutation.addedNodes.forEach((node) => {
-          if (node.nodeType === 1) {
-            if (node.matches('img[alt]:not([alt=""])')) {
-              updateAltButton(node);
-            } else {
-              // 拡大表示されたモーダルが追加された場合
-              if (node.matches('[aria-modal="true"], [role="dialog"]')) {
-                setTimeout(() => {
-                  node.querySelectorAll('img').forEach(img => updateAltButton(img));
-                }, 500); // 少し遅延を入れて確実に画像が読み込まれた後に実行
-              }
-            }
-          }
-        });
+        handleChildListMutation(mutation);
       } else if (mutation.type === 'attributes' && mutation.attributeName === 'alt') {
         updateAltButton(mutation.target);
       }
     });
-  });
+  }
+
+  function handleChildListMutation(mutation) {
+    mutation.addedNodes.forEach((node) => {
+      if (node.nodeType === 1) {
+        if (node.matches('img[alt]:not([alt=""])')) {
+          updateAltButton(node);
+        } else if (node.matches('[data-testid="tweet"], [role="link"]')) {
+          setTimeout(() => {
+            node.querySelectorAll('img').forEach(updateAltButton);
+          }, CONSTANTS.POPUP_DISPLAY_DELAY);
+        } else if (node.matches('[aria-modal="true"], [role="dialog"]')) {
+          handleModalOpen(node);
+        }
+      }
+    });
+  }
   observer.observe(document.body, {
     childList: true,
     subtree: true,
@@ -160,14 +230,14 @@
     attributeFilter: ['alt', 'src']
   });
 
-  // Initial run
-  window.addEventListener('load', updateAllAltButtons);
   document.addEventListener('click', (e) => {
-    if (e.target.closest('[aria-label="View image"]')) {
-      setTimeout(updateAllAltButtons, 500);
+    if (e.target.closest('[data-testid="tweet"], [role="link"]')) {
+      setTimeout(updateAllAltButtons, CONSTANTS.POPUP_DISPLAY_DELAY);
     }
   });
-  // Apply styles for the Alt button and popup
+
+  window.addEventListener('load', updateAllAltButtons);
+
   const styles = `
 .alt-button {
     background-color: rgba(255, 69, 0, 0.8);
@@ -177,7 +247,7 @@
     padding: 8px 12px;
     font-size: 14px;
     cursor: pointer;
-    z-index: 10000; // z-indexを上げて確実に表示されるように
+    z-index: 10000;
     position: absolute;
     bottom: 10px;
     right: 10px;
@@ -251,4 +321,5 @@
   styleSheet.type = "text/css";
   styleSheet.innerText = styles;
   document.head.appendChild(styleSheet);
+
 })();
