@@ -18,6 +18,7 @@
     COPY_BUTTON_TEXT: 'Copy',
     CLOSE_BUTTON_TEXT: 'Close',
     POPUP_DISPLAY_DELAY: 500,
+    MODAL_CHECK_INTERVAL: 100,
   };
 
   function createPopup(altText) {
@@ -151,6 +152,50 @@
     }
   }
 
+  let modalObserver = null;
+
+  function handleModalOpen(modalElement) {
+    if (modalObserver) {
+      modalObserver.disconnect();
+    }
+
+    modalObserver = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'childList' || mutation.type === 'attributes') {
+          const images = modalElement.querySelectorAll('img[alt]:not([alt=""])');
+          images.forEach(updateAltButton);
+        }
+      });
+    });
+
+    modalObserver.observe(modalElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['alt', 'src']
+    });
+
+    // 初回の画像に対してAltボタンを追加
+    const initialImages = modalElement.querySelectorAll('img[alt]:not([alt=""])');
+    initialImages.forEach(updateAltButton);
+  }
+  function handleModalClose() {
+    if (modalObserver) {
+      modalObserver.disconnect();
+      modalObserver = null;
+    }
+  }
+
+  function checkForModalChanges() {
+    const modalElement = document.querySelector('[aria-modal="true"], [role="dialog"]');
+    if (modalElement) {
+      handleModalOpen(modalElement);
+    } else {
+      handleModalClose();
+    }
+  }
+  setInterval(checkForModalChanges, CONSTANTS.MODAL_CHECK_INTERVAL);
+
   const observer = new MutationObserver(handleMutations);
 
   function handleMutations(mutations) {
@@ -172,11 +217,12 @@
           setTimeout(() => {
             node.querySelectorAll('img').forEach(updateAltButton);
           }, CONSTANTS.POPUP_DISPLAY_DELAY);
+        } else if (node.matches('[aria-modal="true"], [role="dialog"]')) {
+          handleModalOpen(node);
         }
       }
     });
   }
-
   observer.observe(document.body, {
     childList: true,
     subtree: true,
