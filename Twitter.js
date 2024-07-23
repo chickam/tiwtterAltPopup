@@ -94,7 +94,7 @@
 
     const container = img.closest('[aria-modal="true"]') || img.parentElement;
     const existingButton = container.querySelector('.alt-button');
-    const altText = img.getAttribute('alt');
+    let altText = img.getAttribute('alt');
 
     if (isValidAltText(altText)) {
       if (!existingButton) {
@@ -125,15 +125,10 @@
         img.addEventListener('load', () => updateAltButton(img));
       }
     });
-  }
 
-  function isEnlargedImage(element) {
-    // 拡大表示された画像を特定するためのより具体的な条件
-    return element.tagName === 'IMG' && (
-      element.closest('[aria-modal="true"]') ||
-      element.closest('[role="dialog"]') ||
-      element.closest('.css-1dbjc4n.r-aqfbo4.r-1p0dtai.r-1d2f490.r-12vffkv.r-1xcajam.r-zchlnj')
-    );
+    // 拡大表示のモーダル内の画像も対象に
+    const modalImages = document.querySelectorAll('[aria-modal="true"] img, [role="dialog"] img');
+    modalImages.forEach(img => updateAltButton(img));
   }
 
   const observer = new MutationObserver((mutations) => {
@@ -144,13 +139,12 @@
             if (node.matches('img[alt]:not([alt=""])')) {
               updateAltButton(node);
             } else {
-              node.querySelectorAll('img[alt]:not([alt=""])').forEach(updateAltButton);
-            }
-            // 拡大表示のモーダルが追加された場合
-            if (node.matches('[aria-modal="true"], [role="dialog"]')) {
-              setTimeout(() => {
-                node.querySelectorAll('img').forEach(updateAltButton);
-              }, 500); // 少し遅延を入れて確実に画像が読み込まれた後に実行
+              // 拡大表示されたモーダルが追加された場合
+              if (node.matches('[aria-modal="true"], [role="dialog"]')) {
+                setTimeout(() => {
+                  node.querySelectorAll('img').forEach(img => updateAltButton(img));
+                }, 500); // 少し遅延を入れて確実に画像が読み込まれた後に実行
+              }
             }
           }
         });
@@ -168,8 +162,11 @@
 
   // Initial run
   window.addEventListener('load', updateAllAltButtons);
-
-  // Apply styles for the Alt button and popup
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[aria-label="View image"]')) {
+      setTimeout(updateAllAltButtons, 500);
+    }
+  });
   // Apply styles for the Alt button and popup
   const styles = `
 .alt-button {
